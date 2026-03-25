@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Christian Christmas Jeopardy — Team Legacy Academy</title>
+  <style>
+    :root{
+      --bg:#08121a; --card:#0f2632; --accent:#e63946; --accent2:#f7d794; --text:#f1f7f9;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial; background:linear-gradient(180deg,#031021 0%, #062634 60%); color:var(--text)}
+    header{display:flex;align-items:center;gap:18px;padding:18px}
+    h1{margin:0;font-size:20px}
+    .container{padding:18px;max-width:1200px;margin:0 auto}
+    .top-row{display:flex;gap:16px;align-items:center}
+    .board{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}
+    .col-title{background:linear-gradient(180deg,#2b6b55,#144d37);padding:12px;border-radius:10px;text-align:center;font-weight:700}
+    .cell{background:linear-gradient(180deg,#183a3a,#082c2c);padding:18px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;user-select:none;box-shadow:0 6px 18px rgba(0,0,0,0.45)}
+    .cell.locked{opacity:0.35;pointer-events:none}
+    .controls{margin-left:auto;display:flex;gap:10px}
+    button{background:var(--accent);border:none;color:white;padding:8px 12px;border-radius:8px;font-weight:700;cursor:pointer}
+    button.secondary{background:transparent;border:2px solid rgba(255,255,255,0.08);font-weight:700}
+    .scoreboard{background:linear-gradient(180deg,#13263b,#0b1622);padding:12px;border-radius:10px;min-width:220px}
+    .score{font-size:28px;font-weight:800}
+    .small{font-size:13px;color:#b9c7cb}
+    .modal{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:var(--card);padding:20px;border-radius:12px;max-width:800px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,0.6)}
+    .q{font-size:20px;margin-bottom:12px}
+    .answer{background:rgba(255,255,255,0.03);padding:10px;border-radius:8px}
+    .footer{margin-top:18px;display:flex;gap:12px;align-items:center}
+    .three-canvas{width:80px;height:80px;background:transparent}
+    @media (max-width:900px){.board{grid-template-columns:repeat(2,1fr)}.controls{flex-wrap:wrap}}
+  </style>
+</head>
+<body>
+  <header>
+    <canvas id="three" class="three-canvas"></canvas>
+    <div>
+      <h1>Team Legacy Academy — Christian Christmas Jeopardy</h1>
+      <div class="small">Mr. Tooter presents: questions shuffled from a pool of ~200 Christian Christmas themed clues. Pick a tile to reveal question; click to show answer and award points.</div>
+    </div>
+    <div class="controls">
+      <button id="refreshBtn">Refresh Board</button>
+      <button id="newRound">New Round (reshuffle)</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <div style="flex:1">
+        <div class="board" id="board"></div>
+      </div>
+      <div class="scoreboard">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="small">Player</div>
+            <div class="score" id="playerName">Player 1</div>
+          </div>
+          <div>
+            <div class="small">Score</div>
+            <div class="score" id="score">0</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;"><button id="resetScore" class="secondary">Reset Score</button></div>
+        <div style="margin-top:12px" class="small">Controls:
+          <ul>
+            <li>Click a tile to see the question</li>
+            <li>Click "Show Answer" to reveal the real answer and award points</li>
+            <li>Refresh Board chooses a fresh set of 25 questions from the 200 pool</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div id="modalRoot"></div>
+  </div>
+
+  <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
+  <script>
+    // --- three.js decorative rotating ornament ---
+    (function(){
+      const canvas = document.getElementById('three');
+      const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true});
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth/canvas.clientHeight, 0.1, 100);
+      camera.position.z = 3;
+      const light = new THREE.DirectionalLight(0xffffff,1);
+      light.position.set(2,2,2); scene.add(light);
+      const amb = new THREE.AmbientLight(0xffffff,0.6); scene.add(amb);
+      const geom = new THREE.SphereGeometry(0.9, 32, 32);
+      const mat = new THREE.MeshStandardMaterial({metalness:0.7, roughness:0.2, color:0xe63946, emissive:0x2b0606});
+      const sphere = new THREE.Mesh(geom, mat); scene.add(sphere);
+      const ringGeom = new THREE.TorusGeometry(1.05, 0.07, 16, 100);
+      const ring = new THREE.Mesh(ringGeom, new THREE.MeshStandardMaterial({color:0xffd166, metalness:0.6, roughness:0.3}));
+      ring.rotation.x = Math.PI/4; scene.add(ring);
+      function animate(t){
+        t *= 0.001;
+        sphere.rotation.y = t*0.5; ring.rotation.y = -t*0.9;
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+    })();
+
+    // --- Question Pool: ~200 questions grouped by point value ---
+    // For brevity and maintainability questions are written as arrays for 100,200,300,400,500 (40 each ~200)
+    const pool = {
+      100: [
+        {q:"Who was the mother of Jesus?", a:"Mary"},
+        {q:"In which town was Jesus born?", a:"Bethlehem"},
+        {q:"What event celebrates Jesus' birth?", a:"Christmas"},
+        {q:"Which angel told Mary she would bear a son?", a:"Gabriel"},
+        {q:"What stable animal is commonly in nativity scenes (one common animal)?", a:"Donkey (or ox)"},
+        {q:"Which king ordered the census that led to Jesus' birth in Bethlehem?", a:"Caesar Augustus"},
+        {q:"What is the name of the carpenter who raised Jesus?", a:"Joseph"},
+        {q:"Which Gospel contains the Christmas story with shepherds?", a:"Luke"},
+        {q:"Who visited baby Jesus bringing gold, frankincense, and myrrh?", a:"The Magi (Wise Men)"},
+        {q:"What city did Joseph and Mary flee to with baby Jesus?", a:"Egypt"},
+        {q:"What word means 'good news' and is often used for the Gospel message?", a:"Gospel"},
+        {q:"Name the hymn that starts: 'Silent night, holy night'", a:"Silent Night"},
+        {q:"Which prophet foretold a ruler from Bethlehem in the Old Testament?", a:"Micah"},
+        {q:"What sign did the angels give to the shepherds?", a:"A baby in a manger"},
+        {q:"What color is traditionally associated with Christmas in church vestments?", a:"White or gold"},
+        {q:"What is the first book of the New Testament?", a:"Matthew"},
+        {q:"Name the river where John baptized people, including Jesus?", a:"Jordan River"},
+        {q:"Which Old Testament figure is known for leading Israel out of Egypt?", a:"Moses"},
+        {q:"Complete the lyric: 'Joy to the ___'", a:"World"},
+        {q:"What food is commonly left for Santa in many Western traditions?", a:"Cookies and milk"},
+        {q:"Which angel announced Jesus' birth to the shepherds?", a:"An angel (often 'an angel of the Lord')"},
+        {q:"Which Old Testament book contains the prophecy 'Unto us a child is born'?", a:"Isaiah"},
+        {q:"What is a manger?", a:"A feeding trough used as a baby's bed in the nativity"},
+        {q:"Who is called the 'king of kings' in Christian tradition?", a:"Jesus Christ"},
+        {q:"Which day is Christmas celebrated on in most western churches?", a:"December 25"},
+        {q:"Which bright star guided the Wise Men?", a:"The Star of Bethlehem"},
+        {q:"Name a common Advent symbol used in churches (a wreath and ___).", a:"Candles"},
+        {q:"Which Psalm is often sung at Christmas? (short answer: Psalm number)", a:"Psalm 96 or Psalm 98 commonly"},
+        {q:"Which apostle wrote many of the New Testament letters and is associated with love?", a:"John"},
+        {q:"What phrase do Christians sing referring to Jesus: 'Hark the ___ angels sing' (complete).", a:"Herald angels"},
+        {q:"Name the mother of John the Baptist", a:"Elizabeth"},
+        {q:"What does 'Immanuel' mean?", a:"God with us"},
+        {q:"Which book includes the genealogies of Jesus?", a:"Matthew and Luke"},
+        {q:"Who was King of Judea at Jesus' birth according to Matthew?", a:"Herod the Great"},
+        {q:"Which fruit is sometimes used as a Christmas symbol (red and round)?", a:"Apple (symbolic)"},
+        {q:"Which feast follows Advent and precedes Christmas Day in some traditions?", a:"Christmastide or Christmas Eve"},
+        {q:"What is the name of the prayer that begins 'Glory to God in the highest...'", a:"The Gloria"},
+        {q:"Which part of the church year focuses on anticipation of Christ's birth?", a:"Advent"},
+        {q:"Which book of the Bible opens with 'In the beginning was the Word'?", a:"John"}
+      ],
+      200: [
+        {q:"Which Gospel records the visit of the shepherds?", a:"Luke"},
+        {q:"What gifts did the Magi bring?", a:"Gold, frankincense, and myrrh"},
+        {q:"Who recognized Jesus as Lord when Mary and Joseph presented him at the temple?", a:"Simeon"},
+        {q:"Who was the prophetess that spoke about the child in the temple?", a:"Anna"},
+        {q:"Which town was Joseph from?", a:"Nazareth"},
+        {q:"What is the traditional period of 12 days following Christmas called?", a:"Twelve Days of Christmas or Christmastide"},
+        {q:"What hymn begins 'O come, all ye faithful'?", a:"Adeste Fideles (O Come, All Ye Faithful)"},
+        {q:"Which evangelist begins his Gospel with a genealogy?", a:"Matthew"},
+        {q:"According to Luke, who were the first to receive the angelic announcement?", a:"Shepherds"},
+        {q:"In which book would you read 'Glory to God in the highest...'", a:"Luke (the angels' song)"},
+        {q:"Which Roman governor ordered Jesus' family to return after Herod died?", a:"There is no specific Roman governor; they returned after Herod's death (Matthew 2)"},
+        {q:"Which Old Testament prophet spoke of a 'virgin shall conceive'?", a:"Isaiah (Isaiah 7:14)"},
+        {q:"Name the song that says 'Let every heart prepare Him room'", a:"Joy to the World"},
+        {q:"In Christian tradition, who brings gifts to children in some countries instead of Santa?", a:"The Christ child or St. Nicholas (varies)"},
+        {q:"What does 'Noel' mean?", a:"Christmas (from French 'noël')"},
+        {q:"Which number chapter of Luke tells the birth narrative? (start) ", a:"Luke 2"},
+        {q:"Which Old Testament town prophesied as birthplace of the Messiah?", a:"Bethlehem (Micah 5:2)"},
+        {q:"Which Gospel includes the canticle 'My soul magnifies the Lord'?", a:"Luke (Mary's Magnificat)"},
+        {q:"Who was the elderly priest who blessed Jesus at the temple?", a:"Simeon"},
+        {q:"Name the traditional meat served at many Western Christmas dinners (historic).", a:"Goose or turkey"},
+        {q:"Which Christmas carol references 'the little Lord Jesus laid down his sweet head'?", a:"Away in a Manger"},
+        {q:"What practice prepares people spiritually before Christmas over four weeks?", a:"Advent observance"},
+        {q:"Which apostle is often called the 'rock' of the church?", a:"Peter"},
+        {q:"Who advised Joseph in a dream to take Mary as his wife?", a:"An angel of the Lord"},
+        {q:"Which hymn includes the line 'Silent night, holy night'?", a:"Silent Night"},
+        {q:"Which language is the original of much of the Old Testament? (main)", a:"Hebrew"},
+        {q:"Which Psalm begins 'O come, let us worship and bow down' and is used at Christmas?", a:"Psalm 95 (or Psalm 95 used in worship)"},
+        {q:"Name the Christian season that celebrates the birth of Christ and lasts until Epiphany.", a:"Christmastide"},
+        {q:"Which foreign king ordered the massacre of infants in Bethlehem (the 'slaughter of the innocents')?", a:"Herod the Great"},
+        {q:"Who wrote many of the Psalms that Christians sing at Christmas?", a:"David (traditionally)"},
+        {q:"Which famous carol begins 'While shepherds watched their flocks by night'?", a:"While Shepherds Watched Their Flocks"},
+        {q:"Which book of the Bible contains the genealogies tracing Jesus back to David?", a:"Matthew and Luke"},
+        {q:"Which Christian practice often involves lighting a candle each week before Christmas?", a:"The Advent wreath"},
+        {q:"Which prophet's name means 'Who is like the LORD?' and appears in prophecy about the Messiah?", a:"Michael (angel) — but prophet for Messiah prophecy often Isaiah"},
+        {q:"Who were the 'wise men' guided by?", a:"The star (Star of Bethlehem)"},
+        {q:"Which hymn has the line 'Born is the King of Israel'?", a:"Unto Us a Child Is Born (various carols)"},
+        {q:"Which gospel writer emphasizes Jesus' fulfillment of prophecy?", a:"Matthew"},
+        {q:"What is the Christian symbol that represents Jesus' birth — often a scene with figures?", a:"The Nativity scene or crèche"},
+        {q:"Which seasonal song mentions 'figgy pudding' (less religious but cultural)?", a:"We Wish You a Merry Christmas"}
+      ],
+      300: [
+        {q:"What title is given to Jesus in Luke 2:11 (short phrase)?", a:"A Savior, who is Christ the Lord"},
+        {q:"Which Old Testament prophet wrote 'For unto us a child is born'?", a:"Isaiah (Isaiah 9:6)"},
+        {q:"Which group in the nativity were told 'Do not be afraid' by the angel?", a:"Shepherds"},
+        {q:"Name the traditional gift associated with kingship among the Magi", a:"Gold"},
+        {q:"What does 'frankincense' symbolize in the gifts of the Magi?", a:"Worship/divinity"},
+        {q:"What does 'myrrh' foreshadow in the gift given to Jesus?", a:"His death and burial (anointing)"},
+        {q:"Which feast commemorates the visit of the Magi?", a:"Epiphany (January 6)"},
+        {q:"Which book of the Bible gives the genealogy that begins with Abraham and goes to Jesus?", a:"Matthew"},
+        {q:"Which Roman city record (census) is linked to Jesus' birthplace story?", a:"Census under Caesar Augustus (Roman census)"},
+        {q:"Which early Christian title for Jesus appears in Isaiah 9:6 (one of them)?", a:"Prince of Peace"},
+        {q:"Which choir-like group heralded Jesus' birth in Luke?", a:"A multitude of the heavenly host (angels)"},
+        {q:"Which apostle is traditionally credited with writing a Gospel emphasizing love and deity of Jesus?", a:"John"},
+        {q:"Which Old Testament king is Jesus often compared to as descendant?", a:"David"},
+        {q:"Name the event when Mary and Joseph had to present Jesus in the temple after birth?", a:"Presentation at the Temple (Luke 2)"},
+        {q:"Which song begins 'O little town of Bethlehem'?", a:"O Little Town of Bethlehem"},
+        {q:"Which prophetic book foretells a ruler coming from Bethlehem?", a:"Micah 5:2"},
+        {q:"What is the Latin name of the hymn 'O Come, All Ye Faithful'?", a:"Adeste Fideles"},
+        {q:"Which New Testament book contains Paul's letters to early churches?", a:"Romans (and others)"},
+        {q:"Who were the primary witnesses to the newborn King in Luke's account?", a:"The shepherds"},
+        {q:"What Swedish tradition sometimes features 'St. Lucia' in December — Christian festival of light?", a:"Saint Lucia's Day"},
+        {q:"Which Christian season ends with Epiphany?", a:"Advent/Christmastide ends at Epiphany"},
+        {q:"Which specific Jewish town is Joseph's lineage from, connecting to prophecy?", a:"Bethlehem (house of David)"},
+        {q:"Which line from Handel's Messiah references the Christmas promise?", a:"For unto us a child is born"},
+        {q:"What is the name of the carol that repeats 'Fa la la' in each verse?", a:"Deck the Halls"},
+        {q:"Which apostle denied Jesus three times?", a:"Peter"},
+        {q:"Which Gospel tells of the shepherds in a field keeping watch at night?", a:"Luke 2"},
+        {q:"Which Christian tradition uses a star on top of the Christmas tree to symbolize?", a:"The Star of Bethlehem"},
+        {q:"What material of gift signifies priestly role (Magi gift)?", a:"Frankincense (symbolic of priesthood/worship)"},
+        {q:"Which Old Testament prophecy is often read at Christmas about 'a child' called Wonderful Counselor?", a:"Isaiah 9:6"},
+        {q:"Who's genealogy does Matthew trace to show Jesus' royal lineage?", a:"David and Abraham (Jesus' genealogy)"},
+        {q:"Which Christian hymn begins 'Hark! The herald angels sing'?", a:"Hark! The Herald Angels Sing"},
+        {q:"What is the name of the town where the shepherds were told to find the baby?", a:"Bethlehem"},
+        {q:"Which person in the Christmas story was told to name the child Jesus?", a:"Mary and Joseph (angel instructs to name him Jesus)"},
+        {q:"Which Old Testament book contains the promise of a ruler called 'Wonderful Counselor'?", a:"Isaiah"},
+        {q:"Which prayer is often sung in churches: 'Angels we have heard on high' — what do they sing?", a:"Gloria in excelsis Deo"},
+        {q:"What small, common nativity prop holds the infant in many depictions?", a:"Manger"},
+        {q:"Which New Testament figure prepared the way for Jesus' ministry?", a:"John the Baptist"}
+      ],
+      400: [
+        {q:"Which prophet is quoted in Matthew as saying 'Out of Egypt I called my son'?", a:"Hosea (Matthew 2:15 quotes Hosea)"},
+        {q:"Which genealogy (Matthew or Luke) traces Jesus through Joseph's line?", a:"Matthew traces through Joseph to show legal lineage"},
+        {q:"What ancient practice did Mary and Joseph follow when presenting Jesus at the temple?", a:"Purification/presentation rites (Luke 2)"},
+        {q:"Which group of people did the angels say the Savior was born for (Luke's audience emphasis)?", a:"All people / shepherds (humble)"},
+        {q:"Which Roman emperor's name appears in the nativity narrative about a census?", a:"Augustus"},
+        {q:"Which Old Testament verse is often cited about a child being born called 'Mighty God'?", a:"Isaiah 9:6"},
+        {q:"Who prophesied about 'a voice crying in the wilderness' before Jesus' ministry?", a:"Isaiah (applied to John the Baptist)"},
+        {q:"Which town did the Magi come from (traditionally thought)?", a:"They came from the East (often Persia) — not precisely named"},
+        {q:"Which Roman client king's paranoia causes the flight to Egypt?", a:"Herod the Great's paranoia (slaughter of innocents)"},
+        {q:"Which Old Testament prophet foretold a ruler from Jesse's line?", a:"Isaiah and Micah reference Jesse/David lineage"},
+        {q:"Which early Christian writer introduced detailed nativity art in the church?", a:"Early church fathers referenced; specific attributions vary"},
+        {q:"Which Christian tradition celebrates Epiphany with house blessings and chalking the door?", a:"Some Orthodox and Catholic traditions (C+M+B chalking)"},
+        {q:"Which famous composer wrote the oratorio 'Messiah' which includes Christmas texts?", a:"George Frideric Handel"},
+        {q:"Which hymn asks 'Then why should we be afraid?' in a verse about Christ's birth?", a:"O Holy Night (various verses)"},
+        {q:"Which Christian feast marks the revelation of Christ to the Gentiles?", a:"Epiphany"},
+        {q:"In art, which figure often points to the infant as the 'Light of the World'?", a:"John the Baptist or the angels in various depictions"},
+        {q:"Which gospel emphasizes fulfillment of prophecy and includes magi?", a:"Matthew"},
+        {q:"What theological title emphasizes Jesus as 'God with us' used at Christmas?", a:"Immanuel"},
+        {q:"Which apostle is associated with the Gospel that begins with 'In the beginning was the Word'?", a:"John"},
+        {q:"Which Old Testament passage speaks of a shoot from the stump of Jesse (Messianic)?", a:"Isaiah 11"},
+        {q:"Who is credited with translating many Christmas carols into English or popularizing them?", a:"Various hymn-writers (e.g., John Mason Neale translated 'O Come, O Come, Emmanuel')"},
+        {q:"Which Christian practice in Advent includes daily readings and lighting candles?", a:"Advent devotions and Advent wreath"},
+        {q:"Which early Christian church father wrote about the meaning of Christ's incarnation?", a:"Athanasius and others wrote on incarnation theology"},
+        {q:"Which book tells of the wise men's visit rather than shepherds?", a:"Matthew"},
+        {q:"Which Psalm is associated with the kingship theme at Christmas (e.g., 'The LORD reigns')?", a:"Psalm 93 or 96 themes of kingship"},
+        {q:"Who in the nativity story serves as an example of faithful acceptance (Mary's response)?", a:"Mary (Magnificat)"},
+        {q:"Which liturgical color is used for Advent in many western churches?", a:"Purple or blue (depending on tradition)"},
+        {q:"Which chorus from Handel's Messiah opens with 'For unto us a child is born' (what form)?", a:"Choral aria/chorus in Handel's Messiah"},
+        {q:"Which theological term describes God becoming human in Jesus?", a:"Incarnation"},
+        {q:"Which New Testament prophetic fulfillment involves 'a voice in the wilderness'?", a:"John the Baptist fulfilling Isaiah (Matthew/Luke reflections)"},
+        {q:"Which carol references an 'ox and ass' near the manger?", a:"Away in a Manger (some versions) or traditional nativity descriptions"},
+        {q:"Which feast is celebrated on January 6 to honor the Magi?", a:"Epiphany (Three Kings' Day)"},
+        {q:"Which Old Testament prophet's book contains the line 'but you, Bethlehem Ephrathah'?", a:"Micah 5:2"},
+        {q:"Which early Christian symbol for Christ is often seen in nativity art (fish, lamb, etc.)?", a:"Lamb or Chi-Rho symbol in broader Christian art"},
+        {q:"Which hymn writer is known for writing 'Joy to the World'?", a:"Isaac Watts (melody often by Lowell Mason)"},
+        {q:"Which Christian practice remembers the Magi's journey in January?", a:"Epiphany services/observance"},
+        {q:"Which Christmas figure was historically based on a 4th-century bishop?", a:"St. Nicholas"}
+      ],
+      500: [
+        {q:"Which Old Testament prophet's prophecy is quoted in Luke about the Messiah's birth in Bethlehem?", a:"Micah (Micah 5:2 referred to in Matthew)"},
+        {q:"Which passage contains the prophecy 'For unto us a child is born, unto us a son is given'?", a:"Isaiah 9:6"},
+        {q:"Which early church council clarified the divinity of Christ important to understanding Christmas theology?", a:"Council of Nicaea (325) and later Chalcedon (451) for Christology"},
+        {q:"What is the theological significance of the Magi representing Gentiles at Christ's birth?", a:"Shows Christ's revelation to the Gentiles and universal kingship"},
+        {q:"Which Latin hymn's title means 'O Come, O Come, Emmanuel'?", a:"Veni, Veni, Emmanuel"},
+        {q:"Which Old Testament book includes the figure of a suffering servant later connected to Christ?", a:"Isaiah (Servant songs)"},
+        {q:"Which Christian writer wrote 'On the Incarnation', explaining why God became man?", a:"Athanasius of Alexandria"},
+        {q:"Theologically, what does 'Incarnation' affirm about Jesus?", a:"That God became fully human while remaining fully divine"},
+        {q:"Which church tradition emphasizes a 'Christ candle' in the Advent wreath lit on Christmas?", a:"Many Protestant traditions light the Christ candle on Christmas or Christmas Eve"},
+        {q:"Which Gospel emphasises fulfillment of prophecy and mentions the Magi?", a:"Matthew"},
+        {q:"Which figure in the Old Testament is seen as a prototype of the shepherd-king motif fulfilled in Jesus?", a:"David (shepherd who became king)"},
+        {q:"Which early Christian poet wrote hymns used in Christmas liturgy (e.g., 'The Incarnation')?", a:"Various early hymnists; Ambrose and others contributed to hymnic tradition"},
+        {q:"Which theological term describes Jesus as 'God with us' and used in Christmas readings?", a:"Immanuel (title) and the doctrine of Incarnation"},
+        {q:"Which major prophet's son is mentioned in lineage prophesies ultimately connecting to Jesus?", a:"Some genealogies mention various names; David is central"},
+        {q:"Which modern scholar argued for the historical context of Jesus' birth under Herod?", a:"Scholars vary (e.g., E. P. Sanders, N. T. Wright discuss historical context)"},
+        {q:"Which church season does Christmas Day fall within?", a:"Christmastide/Christmas season"},
+        {q:"Which term describes the revelation of Christ to the nations, celebrated at Epiphany?", a:"Epiphany (showing/revelation)"},
+        {q:"What is the liturgical importance of the nativity narratives in Matthew & Luke being complementary?", a:"They highlight different theological emphases: Matthew - kingship/fulfillment; Luke - shepherds/peace to the humble"},
+        {q:"Which hymn's text was written by Charles Wesley and is often sung at Christmas?", a:"Hark! The Herald Angels Sing (lyrics by Charles Wesley, adapted by others)"},
+        {q:"Which theological virtue is emphasized in Mary's Magnificat as a Christmas theme?", a:"Humility and God's reversal of worldly expectations"},
+        {q:"Which church father emphasized the mystery of God becoming man for salvation?", a:"Athanasius and others emphasized the incarnation's salvific purpose"},
+        {q:"Which Biblical concept connects Jesus' birth to the theme of light shining in darkness?", a:"Light of the World imagery (John 1, Gospel themes)"},
+        {q:"Which hymn begins 'Away in a Manger' and is often used in children's services?", a:"Away in a Manger"},
+        {q:"Which early Christian festival influenced modern Christmas traditions (timing elements)?", a:"Roman winter festivals and later Christian appropriation (e.g., Saturnalia influences debated)"},
+        {q:"Which biblical singer's songs are often used in Christmas worship (Old Testament)?", a:"David (Psalms)"},
+        {q:"Which theological claim is central to Christmas: that God ___?", a:"became incarnate (became human)"},
+        {q:"Which famous carol writer wrote 'O Little Town of Bethlehem'?", a:"Phillips Brooks (lyrics)"},
+        {q:"Which symbol of kingship appears in nativity stories and gifts?", a:"Gold (gift of Magi)"},
+        {q:"Which portion of Luke contains the songs of Mary and Zechariah near the nativity?", a:"Luke 1-2 (Magnificat and Benedictus)"},
+        {q:"Which historical bishop became the inspiration for gift-giving saint traditions?", a:"St. Nicholas of Myra"},
+        {q:"Which theological festival celebrates the incarnation (God becoming flesh)?", a:"Christmas (the Feast of the Nativity)"},
+        {q:"Which scriptural word used in John describes Jesus as the pre-existent 'Word'?", a:"Logos"},
+        {q:"What practice during Epiphany remembers the visit of the Magi in many churches?", a:"Blessing of homes, Epiphany carols, star processions"},
+        {q:"Which important doctrine is illustrated by the baby in a manger being both humble and divine?", a:"The paradox of the Incarnation — humility and divinity united"},
+        {q:"Which ancient language are much New Testament texts originally written in?", a:"Greek (Koine)"},
+        {q:"Which gospel writer includes the visit of the Magi and the flight to Egypt?", a:"Matthew"}
+      ]
+    };
+
+    // --- Game logic ---
+    const pointValues = [100,200,300,400,500];
+    const categories = ['Nativity & Bible','Carols & Hymns','Prophecy & Theology','Traditions & Saints','People & Places'];
+
+    // Build board: 5 columns (categories) x 5 rows (points 100-500)
+    const boardEl = document.getElementById('board');
+
+    function pickRandomFrom(arr){ return arr.splice(Math.floor(Math.random()*arr.length),1)[0]; }
+
+    // Create a function that selects 25 questions (5x5) with no repeats and each column uses each point value once
+    function makeBoardFromPool(){
+      // Clone pools
+      const pools = {100: pool[100].slice(),200: pool[200].slice(),300: pool[300].slice(),400: pool[400].slice(),500: pool[500].slice()};
+      const selected = [];
+      // For each column (category), pick one question from each point tier
+      for(let c=0;c<5;c++){
+        for(let pv of pointValues){
+          if(pools[pv].length===0){ console.warn('pool empty for',pv); pools[pv]=pool[pv].slice(); }
+          const q = pickRandomFrom(pools[pv]);
+          selected.push({category:categories[c], points:pv, q:q.q, a:q.a});
+        }
+      }
+      return selected; // length 25
+    }
+
+    let currentBoard = [];
+    let score = 0;
+
+    function renderBoard(){
+      boardEl.innerHTML = '';
+      // column titles
+      for(let c=0;c<5;c++){
+        const title = document.createElement('div'); title.className='col-title'; title.textContent=categories[c]; boardEl.appendChild(title);
+      }
+      // cells by rows for point values 100..500
+      for(let r=0;r<5;r++){
+        for(let c=0;c<5;c++){
+          const idx = c*5 + r; // because we arranged per column
+          const item = currentBoard[idx];
+          const cell = document.createElement('div'); cell.className='cell'; cell.dataset.idx=idx; cell.textContent = item.points;
+          cell.addEventListener('click', onCellClick);
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function onCellClick(e){
+      const idx = +e.currentTarget.dataset.idx;
+      const item = currentBoard[idx];
+      showQuestionModal(item, idx);
+    }
+
+    function showQuestionModal(item, idx){
+      const root = document.getElementById('modalRoot');
+      root.innerHTML = `
+        <div class="modal">
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><div class="small">Category</div><div style="font-weight:800">${item.category} — ${item.points} pts</div></div>
+              <div><button id="closeModal" class="secondary">Close</button></div>
+            </div>
+            <div style="margin-top:12px" class="q">${item.q}</div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button id="showAnswer">Show Answer</button>
+              <button id="correctBtn" class="secondary">Mark Correct</button>
+              <button id="wrongBtn" class="secondary">Mark Wrong</button>
+            </div>
+            <div style="margin-top:12px" id="answerArea" class="answer small" hidden></div>
+          </div>
+        </div>
+      `;
+      document.getElementById('closeModal').onclick = ()=>{ root.innerHTML=''; };
+      document.getElementById('showAnswer').onclick = ()=>{
+        const ans = document.getElementById('answerArea'); ans.hidden=false; ans.textContent = 'Answer: ' + item.a;
+      };
+      document.getElementById('correctBtn').onclick = ()=>{ awardPoints(item.points); lockTile(idx); root.innerHTML=''; };
+      document.getElementById('wrongBtn').onclick = ()=>{ lockTile(idx); root.innerHTML=''; };
+    }
+
+    function lockTile(idx){
+      const cell = boardEl.querySelector('.cell[data-idx="'+idx+'"]');
+      if(cell){ cell.classList.add('locked'); cell.textContent='—'; }
+    }
+
+    function awardPoints(v){ score += v; updateScore(); }
+    function updateScore(){ document.getElementById('score').textContent = score; }
+
+    // Build initial board
+    function newRound(){ currentBoard = makeBoardFromPool(); renderBoard(); }
+
+    document.getElementById('refreshBtn').addEventListener('click', ()=>{ newRound(); });
+    document.getElementById('newRound').addEventListener('click', ()=>{ newRound(); });
+    document.getElementById('resetScore').addEventListener('click', ()=>{ score=0; updateScore(); });
+
+    // Start
+    newRound(); updateScore();
+
+    // Small accessibility: keyboard shortcuts
+    document.addEventListener('keydown', (e)=>{
+      if(e.key==='r'){ newRound(); }
+      if(e.key==='0'){ score=0; updateScore(); }
+    });
+
+  </script>
+</body>
+</html>
